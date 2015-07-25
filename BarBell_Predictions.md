@@ -72,10 +72,12 @@ right way, for both health reasons and as better use of their time.
     preProVals$classe <- dtraining$classe
     toTrain <- createDataPartition(preProVals$classe, p=0.75, list=F) #p = default value.check it!
     training<-dtraining[toTrain,]
-    testing<-dtraining[-toTrain]
-    ggplot(training, aes(x = classe, fill = classe)) + geom_bar(aes(classe)) + facet_grid(.~user_name)                                                                                       
+    testing<-dtraining[-toTrain]                                                                                       
 
-![](BarBell_Predictions_files/figure-markdown_strict/unnamed-chunk-2-1.png)
+    ggplot(training, aes(x = classe, fill = classe)) + geom_bar(aes(classe)) + facet_grid(.~user_name)  
+
+![](BarBell_Predictions_files/figure-markdown_strict/unnamed-chunk-3-1.png)
+
 3.Is time to **build and test models.** Let's use **4** methods for the
 construction and further *evaluation of models*: Random Forest, radial
 Support Vector Machines, K-Nearest Neighbours and Naive Bayes. KNN was
