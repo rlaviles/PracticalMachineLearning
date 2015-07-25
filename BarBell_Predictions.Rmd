@@ -1,0 +1,113 @@
+---
+title: "Practical Machine Learning PA Project"
+author: "Roberto Aviles (rlaviles)"
+date: "Thursday, July 23, 2015"
+output: html_document
+---
+
+### Weight Lifting Exercise Prediction Using Human Activity Recognition (HAR) Data
+
+####Abstract
+The objective of this work is to predict the way an exercise has been performed by using the 'classe' variable in the training dataset collected by the HAR project, part of Groupware@LES, "a research and development group on technologies for team work", in Universidad Catolica de Rio de Janeiro, Brasil. In this dataset, a group of 6 people has been asked to perform barbell lifts in 5 diferent ways, the right one and 4 wrong ones. One goal was to teach people how to workout the right way, for both health reasons and as better use of their time.  
+
+1. About the Data.  
+Training and Testing are matrices of (19622,160) and (20,160) {rows, columns} respectively. After inspection, we can discard columns like X, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp. There are many NA values and also, many 'zero or near zero variance' predictors. Now we load libraries and start preparing the data:
+
+```{r warning=FALSE, message=FALSE}
+library(caret); library(knitr); library(plyr)  
+DTraining<-read.csv("pml-training.csv", stringsAsFactors=FALSE) # load training and testing datasets
+DTesting<-read.csv("pml-testing.csv", stringsAsFactors=FALSE)
+dtraining<-subset(DTraining, select = -c(X,raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+nzv<-nearZeroVar(dtraining, saveMetrics=TRUE)
+nzv<-subset(nzv, nzv==TRUE)     # a subset of 60 columns of the original data
+dtraining<-subset(dtraining, select = !names(dtraining) %in% rownames(nzv))
+dNA<-function(vector){ return(sum(is.na(vector))) }
+NAnum<-sapply(dtraining, dNA)
+noNA<-names(NAnum[NAnum / nrow(dtraining) == 0])
+dtraining<-subset(dtraining, select = names(dtraining) %in% noNA)
+print(matrix(noNA,ncol=5))  # the remaining useful columns of information after 'cleaning'.
+```
+2. Next steps:  
+- **preprocess** the data  
+- **partitionate** it and  
+- do a **preliminary check** of the Training subset  
+
+```{r}
+preProVals <-preProcess(dtraining[,-c(1,55)], method = c("center", "scale"))
+preProVals$user_name <- dtraining$user_name
+preProVals$classe <- dtraining$classe
+toTrain <- createDataPartition(preProVals$classe, p=0.75, list=F) #p = default value.check it!
+training<-dtraining[toTrain,]
+testing<-dtraining[-toTrain]
+ggplot(training, aes(x = classe, fill = classe)) + geom_bar(aes(classe)) + facet_grid(.~user_name)  
+```
+3.Is time to **build and test models.** Let's use **4** methods for the construction and further *evaluation of models*: Random Forest, radial Support Vector Machines, K-Nearest Neighbours and Naive Bayes. KNN was the fastest of the 3 methods (few time and small CPU for so many (183!) possible choices: "names(getModelInfo())").
+
+```{r warning=FALSE, message=FALSE, results='hide'}
+library(randomForest); library(kernlab); library(klaR)  
+training$classe <- as.factor(training$classe)
+cvControl <-trainControl(method = "cv", number = 5, allowParallel = TRUE, verboseIter = TRUE)
+model1 <- train(classe ~., training, method = "rf", trControl = cvControl) #model with random forest
+model2 <- train(classe ~., training, method = "svmRadial", trControl = cvControl) # model with radial SVM
+model3 = train(classe ~., training, method = "knn", trControl = cvControl)
+model4 = train(classe ~., training, method = "nb", trControl = cvControl)
+```
+```{r}
+model1[4]; model1[11]
+model2[4]; model2[11]
+model3[4]; model3[11]
+model4[4]
+```
+
+I have measured the CPU time requested to run each model:  Random Forest, 20 minutes; radial SVM, 12 minutes; k Nearest Neighbour, 2 minutes; Naive Bayes, 5 minutes (a number of warings have been 'discarded' since my objective was only to test NB, not to use it.) And now, check the results (in terms of accuracy) for these 4 models:
+
+```{r}
+accuracy <- data.frame(Model=c("Random Forest", "SVM (radial)", "KNN", "Naive Bayes"),
+                       Accuracy=c(round(max(head(model1$results)$Accuracy), 5),
+                                   round(max(head(model2$results)$Accuracy), 5),
+                                   round(max(head(model3$results)$Accuracy), 5),
+                                   round(max(head(model4$results)$Accuracy),5)))
+accuracy
+```
+As we can see, the best model is number one, constructed with the Random Forest method (accuracy~99.7%) and the 'worst' was Naive Bayes (accuracy ~ 76.2%) Now we can use those 4 models and do predictions using the samples in the 'testing' dataset.  
+
+```{r}
+DTesting <- DTesting[, names(DTesting) %in% names(training)]
+testmodelRF <- predict(model1, DTesting)
+testmodelSVM<- predict(model2, DTesting)
+testmodelKNN<- predict(model3, DTesting)
+testmodelBN<- predict(model4, DTesting)
+## Construct a table and check if the models agree in their predictions
+predTable <- data.frame(rfPred = testmodelRF, svmPred = testmodelSVM, knnPred = testmodelKNN, bnPred = testmodelBN)
+predTable$agree <- with(predTable, rfPred == svmPred && rfPred == knnPred && rfPred == bnPred)
+Agreement <- all(predTable$agree)
+
+kable(predTable)  ## an ordered summary of results
+## table(predTable)  ## a bit more of details  
+```
+As we can see, if we include **model 4 (naive Bayes)** the prediction table display FALSE's. So discard Naive Bayes and we get: 
+
+```{r}
+DTesting <- DTesting[, names(DTesting) %in% names(training)]
+testmodelRF <- predict(model1, DTesting)
+testmodelSVM<- predict(model2, DTesting)
+testmodelKNN<- predict(model3, DTesting)
+## Construct a table and check if the models agree in their predictions
+predTable <- data.frame(rfPred = testmodelRF, svmPred = testmodelSVM, knnPred = testmodelKNN)
+predTable$agree <- with(predTable, rfPred == svmPred && rfPred == knnPred)
+Agreement <- all(predTable$agree)
+
+kable(predTable)  ## an ordered summary of results
+## table(predTable)  ## a bit more of details  
+```
+Now we are ready to submit our results, considering only our Random Forest model. Final remarks: we have taken up to a 75% (p=0.75) of data for training and have tested the dataset with 4 different methods/models. After test, we have discarded only Naive Bayes and probed that Random Forest with cross validation is the better method for the construction of a good model (higher accuracy.)  
+
+References:  
+1. https://www.unt.edu/rss/class/Jon/Benchmarks/CrossValidation1_JDS_May2011.pdf  
+2. http://www.r-bloggers.com/near-zero-variance-predictors-should-we-remove-them  
+3. https://cran.r-project.org/web/packages/caret/vignettes/caret.pdf NEW!
+4. https://cran.r-project.org/web/views/MachineLearning.html
+5. https://cran.r-project.org/web/packages/klaR/index.html
+
+
+
